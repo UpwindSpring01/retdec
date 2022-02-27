@@ -1315,8 +1315,6 @@ llvm::Value* Capstone2LlvmIrTranslatorX86_impl::generateSignFlag(
  * The parity flag reflects the parity only of the least significant byte of
  * the result, and is set if the number of set bits of ones is even.
  *
- * (val & 1) (== 1) -> odd
- * (val & 1) == 0   -> even
  */
 llvm::Value* Capstone2LlvmIrTranslatorX86_impl::generateParityFlag(
 		llvm::Value* val,
@@ -1326,8 +1324,33 @@ llvm::Value* Capstone2LlvmIrTranslatorX86_impl::generateParityFlag(
 	auto* trunc = irb.CreateTrunc(val, i8t);
 	auto* f = llvm::Intrinsic::getDeclaration(_module, llvm::Intrinsic::ctpop, i8t);
 	auto* c = irb.CreateCall(f, {trunc});
-	auto* a = irb.CreateAnd(c, llvm::ConstantInt::get(c->getType(), 1));
-	return irb.CreateICmpEQ(a, llvm::ConstantInt::get(a->getType(), 0));
+
+	auto* constant1 = llvm::ConstantInt::get(c->getType(), 1);
+	auto* bit8 = irb.CreateLShr(c, 7);
+	auto* bit7 = irb.CreateAnd(irb.CreateLShr(c, 6), constant1);
+	auto* bit6 = irb.CreateAnd(irb.CreateLShr(c, 5), constant1);
+	auto* bit5 = irb.CreateAnd(irb.CreateLShr(c, 4), constant1);
+	auto* bit4 = irb.CreateAnd(irb.CreateLShr(c, 3), constant1);
+	auto* bit3 = irb.CreateAnd(irb.CreateLShr(c, 2), constant1);
+	auto* bit2 = irb.CreateAnd(irb.CreateLShr(c, 1), constant1);
+	auto* bit1 = irb.CreateAnd(c, constant1);
+
+	auto* xorResult = irb.CreateXor(
+		irb.CreateXor(
+			irb.CreateXor(
+				irb.CreateXor(
+					irb.CreateXor(
+						irb.CreateXor(
+							irb.CreateXor(bit8, bit7),
+							bit6), 
+						bit5),
+					bit4), 
+				bit3),
+			bit2),
+		bit1);
+
+	// Might need to be CreateICmpNE
+	return irb.CreateICmpEQ(xorResult, llvm::ConstantInt::get(xorResult->getType(), 0));
 }
 
 /**
@@ -1732,7 +1755,7 @@ void Capstone2LlvmIrTranslatorX86_impl::translateAdd(cs_insn* i, cs_x86* xi, llv
 }
 
 /**
- * X86_INS_TEST, X86_INS_AND
+ * X86_INS_AND
  */
 void Capstone2LlvmIrTranslatorX86_impl::translateAnd(cs_insn* i, cs_x86* xi, llvm::IRBuilder<>& irb)
 {
@@ -1750,6 +1773,27 @@ void Capstone2LlvmIrTranslatorX86_impl::translateAnd(cs_insn* i, cs_x86* xi, llv
 	{
 		storeOp(xi->operands[0], andOp, irb);
 	}
+}
+
+/**
+ * X86_INS_TEST
+ */
+void Capstone2LlvmIrTranslatorX86_impl::translateTest(cs_insn* i, cs_x86* xi, llvm::IRBuilder<>& irb)
+{
+	EXPECT_IS_BINARY(i, xi, irb);
+
+	std::tie(op0, op1) = loadOpBinary(xi, irb, eOpConv::SEXT_TRUNC_OR_BITCAST);
+
+	auto* cfAnd = irb.CreateAnd(op0, op1);
+	auto* testOp = irb.CreateICmpNE(cfAnd, llvm::ConstantInt::get(cfAnd->getType(), 0));
+	
+	storeRegister(X86_REG_AF, irb.getInt1(false), irb); // undef
+	storeRegister(X86_REG_CF, irb.getInt1(false), irb); // cleared
+	storeRegister(X86_REG_OF, irb.getInt1(false), irb); // cleared
+
+	storeRegister(X86_REG_SF, generateSignFlag(cfAnd, irb), irb); // Most significant bit of the AND operation
+	storeRegister(X86_REG_ZF, testOp, irb); // if AND == 0 => 1; otherwise => 0
+	storeRegister(X86_REG_PF, generateParityFlag(cfAnd, irb), irb);
 }
 
 /**

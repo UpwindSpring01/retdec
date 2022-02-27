@@ -1306,7 +1306,7 @@ Capstone2LlvmIrTranslatorX86_impl::_i2fm =
 		{X86_INS_SYSEXIT, nullptr},
 		{X86_INS_SYSRET, nullptr},
 		{X86_INS_T1MSKC, nullptr},
-		{X86_INS_TEST, &Capstone2LlvmIrTranslatorX86_impl::translateAnd},
+		{X86_INS_TEST, &Capstone2LlvmIrTranslatorX86_impl::translateTest},
 		{X86_INS_UD2, &Capstone2LlvmIrTranslatorX86_impl::translateNop},
 		{X86_INS_FTST, &Capstone2LlvmIrTranslatorX86_impl::translateFucomPop},
 		{X86_INS_TZCNT, nullptr},
